@@ -2,27 +2,27 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>灵境 21 点 - 终极豪赌版</title>
+    <title>灵境 21 点 - 终极全功能版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
-        :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; --neon-glow: 0 0 15px rgba(212,175,55,0.6); }
+        :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; --neon: 0 0 15px rgba(212,175,55,0.6); }
         body { margin: 0; background: #05050a; color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; }
         
-        /* 摄像头层：镜像处理并置于底层 */
-        #output_canvas { position: absolute; inset: 0; z-index: 1; opacity: 0.45; transform: scaleX(-1); }
+        /* 画面层：镜像预览 */
+        #output_canvas { position: absolute; inset: 0; z-index: 1; opacity: 0.5; transform: scaleX(-1); }
         
-        /* 顶层 UI 布局 */
+        /* 顶层游戏 UI */
         #game-ui { position: relative; z-index: 10; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 40px; box-sizing: border-box; pointer-events: none; }
 
-        /* 筹码与状态栏 */
-        .stats-bar { display: flex; gap: 50px; background: rgba(0,0,0,0.85); padding: 15px 50px; border-radius: 60px; border: 1px solid var(--gold); box-shadow: var(--neon-glow); }
+        /* 状态栏：资产与下注 */
+        .stats-bar { display: flex; gap: 50px; background: rgba(0,0,0,0.85); padding: 15px 50px; border-radius: 60px; border: 1px solid var(--gold); box-shadow: var(--neon); }
         .stat-item { text-align: center; }
-        .stat-label { font-size: 12px; color: #aaa; text-transform: uppercase; margin-bottom: 5px; }
+        .stat-label { font-size: 12px; color: #aaa; margin-bottom: 5px; }
         .stat-val { font-size: 28px; color: var(--gold); font-weight: bold; }
 
-        /* 卡牌区域 */
-        .card-zone { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        /* 卡牌样式与动画 */
         .hand { display: flex; gap: 15px; min-height: 160px; perspective: 1000px; }
         .card { 
             width: 100px; height: 150px; background: white; color: black; border-radius: 12px; 
@@ -35,61 +35,58 @@
         .card.red { color: var(--red); }
         @keyframes deal { from { transform: translateY(-500px) rotate(30deg); opacity: 0; } to { transform: translateY(0) rotate(0); opacity: 1; } }
 
-        /* 中间提示信息 */
-        #main-hint { font-size: 1.4em; color: var(--cyan); text-align: center; background: rgba(0,0,0,0.6); padding: 15px 30px; border-radius: 40px; border: 1px solid rgba(0,255,255,0.3); }
+        /* 引导与调试信息 */
+        #main-hint { font-size: 1.4em; color: var(--cyan); text-align: center; background: rgba(0,0,0,0.6); padding: 15px 30px; border-radius: 40px; border: 1px solid rgba(0,255,255,0.3); backdrop-filter: blur(5px); }
+        #status-dot { position: fixed; top: 20px; left: 20px; font-size: 12px; color: #00ff00; z-index: 100; opacity: 0.7; }
 
-        /* 手势交互环 */
-        #gesture-ring { position: fixed; width: 60px; height: 60px; border: 4px solid var(--cyan); border-radius: 50%; display: none; transform: translate(-50%, -50%); z-index: 100; pointer-events: none; transition: width 0.1s, height 0.1s; }
-
-        /* 结算全屏弹窗 */
-        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 500; pointer-events: auto; backdrop-filter: blur(8px); }
-        .res-msg { font-size: 5em; font-weight: 900; letter-spacing: 5px; margin-bottom: 10px; }
-        .res-sub { font-size: 1.5em; color: var(--gold); margin-bottom: 40px; }
-        .btn-restart { padding: 18px 60px; background: var(--gold); border: none; border-radius: 40px; font-weight: bold; font-size: 1.2em; cursor: pointer; box-shadow: 0 0 20px rgba(212,175,55,0.4); }
+        /* 结算弹窗 */
+        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 500; pointer-events: auto; }
+        .res-title { font-size: 4em; font-weight: 900; margin-bottom: 10px; }
+        .btn-restart { padding: 18px 60px; background: var(--gold); border: none; border-radius: 40px; font-weight: bold; cursor: pointer; font-size: 1.2em; margin-top: 20px; }
     </style>
 </head>
 <body>
 
-<div id="gesture-ring"></div>
+<div id="status-dot">● 系统初始化中...</div>
 <video id="input_video" style="display:none;" playsinline></video>
 <canvas id="output_canvas"></canvas>
 
 <div id="game-ui">
     <div class="stats-bar">
-        <div class="stat-item"><div class="stat-label">Total Assets</div><div id="total-money" class="stat-val">$1000</div></div>
-        <div class="stat-item"><div class="stat-label">Current Bet</div><div id="current-bet" class="stat-val">$0</div></div>
+        <div class="stat-item"><div class="stat-label">我的筹码</div><div id="total-money" class="stat-val">$1000</div></div>
+        <div class="stat-item"><div class="stat-label">本次下注</div><div id="current-bet" class="stat-val">$0</div></div>
     </div>
 
-    <div class="card-zone">
-        <div style="opacity: 0.5;">DEALER HAND</div>
+    <div id="dealer-zone">
         <div id="dealer-hand" class="hand"></div>
     </div>
 
-    <div id="main-hint">正在唤醒摄像头...<br>请在浏览器顶部点击“允许”</div>
+    <div id="main-hint">正在唤醒灵境...<br>请在浏览器顶部点击“允许”</div>
 
-    <div class="card-zone">
+    <div id="player-zone">
         <div id="player-hand" class="hand"></div>
-        <div id="player-score" style="color:var(--gold); font-size: 1.8em; margin-top: 10px; font-weight: bold;">点数: 0</div>
+        <div id="player-score" style="color:var(--gold); font-size: 1.8em; text-align: center; margin-top: 10px; font-weight: bold;">点数: 0</div>
     </div>
 </div>
 
 <div id="overlay">
-    <div id="res-title" class="res-msg">YOU WIN</div>
-    <div id="res-detail" class="res-sub">庄家爆牌了！筹码翻倍。</div>
-    <button class="btn-restart" onclick="resetGame()">继续下注</button>
+    <div id="res-title" class="res-title">YOU WIN</div>
+    <div id="res-detail" style="font-size: 1.5em; margin-bottom: 30px;"></div>
+    <button class="btn-restart" onclick="resetRound()">下一把</button>
 </div>
 
 <script>
-// --- 核心逻辑变量 ---
-let money = 1000, bet = 0, state = "BETTING"; 
+// --- 全局变量 ---
+let money = 1000, bet = 0, state = "BETTING";
 let pHand = [], dHand = [], deck = [];
 let holdType = "NONE", holdTime = 0;
 
-const vEl = document.getElementById('input_video'), cEl = document.getElementById('output_canvas'), ctx = cEl.getContext('2d');
-const ring = document.getElementById('gesture-ring');
+const vEl = document.querySelector('#input_video');
+const cEl = document.querySelector('#output_canvas');
+const ctx = cEl.getContext('2d');
 
-// --- 游戏流程函数 ---
-function createDeck() {
+// --- 游戏逻辑 ---
+function initDeck() {
     const suits = ['♠','♥','♣','♦'], vals = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
     deck = [];
     suits.forEach(s => vals.forEach(v => deck.push({s, v, isRed: (s==='♥'||s==='♦')})));
@@ -114,8 +111,7 @@ function renderCard(card, targetId) {
     document.getElementById(targetId).appendChild(div);
 }
 
-// --- 手势动作分发 ---
-async function onGesture(type) {
+async function triggerAction(type) {
     if (state === "BETTING") {
         if (type === "HIT" && money >= 100) { 
             bet += 100; money -= 100; 
@@ -123,7 +119,7 @@ async function onGesture(type) {
         }
         else if (type === "STAND" && bet > 0) {
             state = "PLAYING";
-            createDeck();
+            initDeck();
             pHand = [deck.pop(), deck.pop()]; dHand = [deck.pop()];
             pHand.forEach(c => renderCard(c, 'player-hand'));
             dHand.forEach(c => renderCard(c, 'dealer-hand'));
@@ -132,18 +128,18 @@ async function onGesture(type) {
     } else if (state === "PLAYING") {
         if (type === "HIT") {
             const c = deck.pop(); pHand.push(c); renderCard(c, 'player-hand');
-            if (getScore(pHand) > 21) finalize("LOSE", "PLAYER BUST", "你爆牌了，庄家拿走了筹码。");
+            if (getScore(pHand) > 21) finalize("LOSE", "PLAYER BUST", "你爆牌了！");
         } else if (type === "STAND") {
-            state = "DEALER_TURN";
+            state = "DEALER";
             while(getScore(dHand) < 17) {
                 const c = deck.pop(); dHand.push(c); renderCard(c, 'dealer-hand');
                 await new Promise(r => setTimeout(r, 700));
             }
             const ps = getScore(pHand), ds = getScore(dHand);
-            if (ds > 21) finalize("WIN", "DEALER BUST", "庄家爆牌了！你赢得了筹码。", bet * 2);
-            else if (ps > ds) finalize("WIN", "YOU WIN", "你的点数更大，恭喜！", bet * 2);
-            else if (ps < ds) finalize("LOSE", "DEALER WIN", "很遗憾，庄家的点数更高。");
-            else finalize("PUSH", "PUSH", "平局，筹码已退回。", bet);
+            if (ds > 21) finalize("WIN", "DEALER BUST", "庄家爆牌，你赢了！", bet * 2);
+            else if (ps > ds) finalize("WIN", "YOU WIN", "点数碾压！", bet * 2);
+            else if (ps < ds) finalize("LOSE", "DEALER WIN", "庄家点数更高。");
+            else finalize("PUSH", "PUSH", "平局，筹码退回。", bet);
         }
     }
     updateUI();
@@ -160,7 +156,7 @@ function finalize(result, title, detail, payout = 0) {
     state = "OVER";
 }
 
-function resetGame() {
+function resetRound() {
     bet = 0; pHand = []; dHand = []; state = "BETTING";
     document.getElementById('player-hand').innerHTML = '';
     document.getElementById('dealer-hand').innerHTML = '';
@@ -175,42 +171,52 @@ function updateUI() {
     document.getElementById('player-score').innerText = `点数: ${getScore(pHand)}`;
 }
 
-// --- MediaPipe 核心控制器 ---
-const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-hands.onResults(res => {
-    ctx.clearRect(0,0,cEl.width,cEl.height);
-    ctx.save(); ctx.scale(-1,1); ctx.translate(-cEl.width,0); ctx.globalAlpha = 0.6;
-    ctx.drawImage(res.image, 0,0,cEl.width,cEl.height); ctx.restore();
+// --- 手势识别引擎 ---
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 
-    if (res.multiHandLandmarks && res.multiHandLandmarks[0]) {
-        const h = res.multiHandLandmarks[0];
-        const x = (1-h[8].x)*window.innerWidth, y = h[8].y*window.innerHeight;
-        ring.style.display = "block"; ring.style.left = x+'px'; ring.style.top = y+'px';
+hands.onResults((res) => {
+    document.getElementById('status-dot').innerText = "● 引擎已就绪 (正在捕捉手势)";
+    ctx.save();
+    ctx.clearRect(0, 0, cEl.width, cEl.height);
+    ctx.scale(-1, 1); ctx.translate(-cEl.width, 0);
+    ctx.drawImage(res.image, 0, 0, cEl.width, cEl.height);
 
-        const isHit = h[8].y < h[6].y && h[12].y > h[10].y; // 仅食指伸出
-        const isStand = h[8].y < h[6].y && h[12].y < h[10].y && h[16].y < h[14].y; // 五指伸出
-        const current = isHit ? "HIT" : (isStand ? "STAND" : "NONE");
+    if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        const lm = res.multiHandLandmarks[0];
+        
+        // 关键：在画面上绘制绿色线条和点，方便看有没有识别到
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+        drawLandmarks(ctx, lm, {color: '#FF0000', lineWidth: 1});
 
-        if (current !== "NONE" && current === holdType) {
-            holdTime++; ring.style.borderWidth = (holdTime/2 + 4) + 'px';
-            if (holdTime > 25) { onGesture(current); holdTime = 0; }
-        } else { holdType = current; holdTime = 0; ring.style.borderWidth = '4px'; }
-    } else { ring.style.display = "none"; }
+        // 识别逻辑
+        const isIndexUp = lm[8].y < lm[6].y;
+        const isMiddleUp = lm[12].y < lm[10].y;
+        const isRingUp = lm[16].y < lm[14].y;
+
+        let detected = "NONE";
+        if (isIndexUp && !isMiddleUp) detected = "HIT"; 
+        else if (isIndexUp && isMiddleUp && isRingUp) detected = "STAND";
+
+        if (detected !== "NONE" && detected === holdType) {
+            holdTime++;
+            if (holdTime > 20) { triggerAction(detected); holdTime = 0; }
+        } else { holdType = detected; holdTime = 0; }
+    }
+    ctx.restore();
 });
 
 const camera = new Camera(vEl, {
-    onFrame: async () => { cEl.width = window.innerWidth; cEl.height = window.innerHeight; await hands.send({image: vEl}); },
+    onFrame: async () => {
+        cEl.width = window.innerWidth;
+        cEl.height = window.innerHeight;
+        await hands.send({image: vEl});
+    },
     width: 1280, height: 720
 });
 
-// 模拟塔罗牌的强制启动逻辑
-window.onload = () => {
-    camera.start().then(() => {
-        document.getElementById('main-hint').innerHTML = "☝️ 保持食指：下注 ($100)<br>🖐️ 保持手掌：确认开局";
-    }).catch(() => {
-        document.getElementById('main-hint').innerHTML = "<span style='color:red'>摄像头启动失败</span><br>请点击地址栏左侧小锁手动允许";
-    });
-};
+// 像塔罗牌一样开局强制启动
+window.onload = () => camera.start();
 </script>
 </body>
 </html>
