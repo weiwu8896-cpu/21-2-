@@ -2,110 +2,94 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>灵境 21 点 - 语义加强版</title>
+    <title>灵境 21 点 - 视觉对齐版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
         :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; }
-        body { margin: 0; background: #000 !important; color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; }
+
+        /* 核心修复：摄像头全屏背景映射 */
+        #video_container { position: fixed; inset: 0; z-index: 1; }
+        #input_video { display: none; }
+        #output_canvas { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.4; }
+
+        /* 游戏 UI 层 */
+        #game-ui { position: relative; z-index: 10; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: none; padding: 40px 0; }
         
-        /* 摄像头小窗 */
-        #output_canvas { 
-            position: fixed !important; bottom: 20px !important; right: 20px !important; 
-            z-index: 1000 !important; width: 240px !important; height: 180px !important; 
-            border: 2px solid var(--gold); border-radius: 15px; transform: scaleX(-1); background: #111;
+        .glass-panel { background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); border: 1px solid var(--gold); border-radius: 20px; padding: 15px 40px; pointer-events: auto; }
+        .stats-row { display: flex; gap: 60px; text-align: center; }
+        .stat-val { font-size: 36px; font-weight: bold; color: var(--gold); }
+
+        /* 操作提示框 */
+        #hint-box { 
+            text-align: center; padding: 25px 50px; border: 2px solid var(--cyan); 
+            box-shadow: 0 0 20px rgba(0,255,255,0.3); transition: all 0.3s;
         }
+        .instr { font-size: 1.8em; margin: 8px 0; opacity: 0.6; }
+        .instr.active { opacity: 1; color: var(--cyan); transform: scale(1.1); font-weight: bold; }
 
-        #game-layout { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 40px 0; }
-        
-        .top-bar { display: flex; gap: 50px; background: rgba(255,255,255,0.05); padding: 15px 60px; border-radius: 20px; border: 1px solid var(--gold); }
-        .stat-item { text-align: center; }
-        .stat-label { font-size: 14px; color: #aaa; margin-bottom: 5px; }
-        .stat-val { font-size: 32px; font-weight: bold; color: var(--gold); }
-
-        /* 重点修复：显眼的提示区域 */
-        #instruction-box {
-            text-align: center; min-height: 120px; display: flex; flex-direction: column; justify-content: center;
-            background: rgba(0,0,0,0.6); padding: 20px 40px; border-radius: 30px; border: 1px solid rgba(0,255,255,0.3);
-        }
-        .instr-line { font-size: 1.5em; margin: 5px 0; transition: all 0.3s; }
-        .active-action { color: var(--cyan); transform: scale(1.1); font-weight: bold; }
-
-        .hand-area { display: flex; gap: 20px; min-height: 160px; align-items: center; }
+        .card-zone { display: flex; gap: 20px; min-height: 180px; align-items: center; }
         .card { 
-            width: 100px; height: 145px; background: white; color: black; border-radius: 12px; padding: 10px; 
-            box-sizing: border-box; font-weight: bold; font-size: 24px; box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-            position: relative; animation: card-pop 0.3s ease-out;
+            width: 110px; height: 160px; background: white; color: black; border-radius: 12px; padding: 12px; 
+            box-sizing: border-box; font-weight: bold; font-size: 26px; box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            animation: deal 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
         }
-        .card.hidden { background: #1a1a2e; border: 2px solid var(--gold); color: transparent; }
         .card.red { color: var(--red); }
-        @keyframes card-pop { from { transform: scale(0.5) translateY(50px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .card.back { background: linear-gradient(135deg, #1a1a2e, #000); border: 2px solid var(--gold); color: transparent; }
+        @keyframes deal { from { transform: translateY(100px) rotate(10deg); opacity: 0; } to { transform: translateY(0) rotate(0); opacity: 1; } }
 
-        /* 结算全屏 */
-        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.98); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
-        .progress-container { width: 350px; height: 12px; background: #222; margin-top: 30px; border-radius: 6px; overflow: hidden; border: 1px solid #444; }
-        #fist-progress { width: 0%; height: 100%; background: var(--gold); box-shadow: 0 0 15px var(--gold); }
-        
-        #toast { position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%); font-size: 80px; pointer-events: none; z-index: 3000; }
+        /* 结算弹窗 */
+        #result-overlay { 
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; 
+            display: none; flex-direction: column; align-items: center; justify-content: center; 
+        }
+        .progress-bar { width: 300px; height: 8px; background: #333; border-radius: 4px; margin-top: 20px; overflow: hidden; }
+        #progress-fill { width: 0%; height: 100%; background: var(--gold); box-shadow: 0 0 15px var(--gold); }
     </style>
 </head>
 <body>
 
-<div id="toast"></div>
-<video id="input_video" style="display:none;" playsinline></video>
-<canvas id="output_canvas"></canvas>
+<div id="video_container">
+    <video id="input_video" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+</div>
 
-<div id="game-layout">
-    <div class="top-bar">
-        <div class="stat-item"><div class="stat-label">资产</div><div id="m-val" class="stat-val">$1000</div></div>
-        <div class="stat-item"><div class="stat-label">本次下注</div><div id="b-val" class="stat-val">$0</div></div>
+<div id="game-ui">
+    <div class="glass-panel stats-row">
+        <div>资产<div id="m-val" class="stat-val">$1000</div></div>
+        <div>下注<div id="b-val" class="stat-val">$0</div></div>
     </div>
 
-    <div id="dealer-hand" class="hand-area"></div>
+    <div id="dealer-cards" class="card-zone"></div>
 
-    <div id="instruction-box">
-        <div id="line-1" class="instr-line">☝️ 保持食指：下注 ($100)</div>
-        <div id="line-2" class="instr-line">🖐️ 保持手掌：确认开局</div>
+    <div id="hint-box" class="glass-panel">
+        <div id="hint-1" class="instr">☝️ 保持食指：下注 ($100)</div>
+        <div id="hint-2" class="instr">🖐️ 保持手掌：确认开局</div>
     </div>
 
     <div>
-        <div id="player-hand" class="hand-area"></div>
-        <div id="player-score" style="text-align:center; color:var(--gold); font-size: 2em; margin-top:15px; font-weight:bold;">点数: 0</div>
+        <div id="player-cards" class="card-zone"></div>
+        <div id="p-score" style="text-align:center; color:var(--gold); font-size: 2.2em; font-weight:bold; margin-top:10px;">点数: 0</div>
     </div>
 </div>
 
-<div id="overlay">
-    <h1 id="res-title" style="font-size: 6em; margin: 0; text-shadow: 0 0 30px rgba(255,255,255,0.2);"></h1>
-    <p id="res-detail" style="font-size: 2em; color: #888; margin: 20px 0;"></p>
-    <div id="fist-hint" style="color:var(--gold); font-size: 1.8em; font-weight:bold; margin-top:20px;">✊ 保持握拳：重开下一局</div>
-    <div class="progress-container"><div id="fist-progress"></div></div>
+<div id="result-overlay">
+    <h1 id="res-title" style="font-size: 5em; margin: 0;"></h1>
+    <p id="res-msg" style="font-size: 1.5em; color: #888;"></p>
+    <div style="color:var(--gold); font-size: 1.8em; margin-top:40px;">✊ 保持握拳状态：开启下一局</div>
+    <div class="progress-bar"><div id="progress-fill"></div></div>
 </div>
 
 <script>
 let money = 1000, bet = 0, state = "BETTING", pHand = [], dHand = [], deck = [];
-let busy = false, cooldown = false, progress = 0;
+let busy = false, isCooling = false, fistTimer = 0;
 
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-function updateInstructions() {
-    const l1 = document.getElementById('line-1');
-    const l2 = document.getElementById('line-2');
-    if (state === "BETTING") {
-        l1.innerHTML = "☝️ 保持食指：下注 ($100)";
-        l2.innerHTML = "🖐️ 保持手掌：确认开局";
-    } else if (state === "PLAYING") {
-        l1.innerHTML = "☝️ 保持食指：要牌 (Hit)";
-        l2.innerHTML = "🖐️ 保持手掌：停牌 (Stand)";
-    }
-}
-
-function flashAction(emoji) {
-    const t = document.getElementById('toast');
-    t.innerText = emoji;
-    t.style.opacity = 1;
-    setTimeout(() => t.style.opacity = 0, 600);
-}
+// 初始化 Mediapipe
+const videoElement = document.getElementById('input_video');
+const canvasElement = document.getElementById('output_canvas');
+const canvasCtx = canvasElement.getContext('2d');
 
 function shuffle() {
     const s = ['♠','♥','♣','♦'], v = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
@@ -113,69 +97,78 @@ function shuffle() {
     return d.sort(() => Math.random() - 0.5);
 }
 
-function renderCard(card, target, isHidden = false) {
+function createCard(card, isBack = false) {
     const div = document.createElement('div');
-    div.className = `card ${isHidden ? 'hidden' : ''} ${card.isRed ? 'red' : ''}`;
-    div.innerHTML = isHidden ? '' : `<div>${card.val}</div><div style="font-size:40px;text-align:center;margin-top:25px">${card.suit}</div>`;
-    document.getElementById(target).appendChild(div);
+    div.className = `card ${isBack ? 'back' : ''} ${card.isRed ? 'red' : ''}`;
+    div.innerHTML = isBack ? '' : `<div>${card.val}</div><div style="font-size:45px;text-align:center;margin-top:25px">${card.suit}</div>`;
+    return div;
 }
 
 async function startRound() {
-    busy = true; state = "PLAYING"; updateInstructions();
+    busy = true; state = "PLAYING"; 
+    updateHintText();
     deck = shuffle(); pHand = []; dHand = [];
-    document.getElementById('player-hand').innerHTML = '';
-    document.getElementById('dealer-hand').innerHTML = '';
+    document.getElementById('player-cards').innerHTML = '';
+    document.getElementById('dealer-cards').innerHTML = '';
     
     for(let i=0; i<2; i++) {
-        pHand.push(deck.pop()); renderCard(pHand[i], 'player-hand'); await wait(500);
-        dHand.push(deck.pop()); renderCard(dHand[i], 'dealer-hand', i===1); await wait(500);
+        pHand.push(deck.pop()); document.getElementById('player-cards').appendChild(createCard(pHand[i]));
+        await new Promise(r => setTimeout(r, 600));
+        dHand.push(deck.pop()); document.getElementById('dealer-cards').appendChild(createCard(dHand[i], i===1));
+        await new Promise(r => setTimeout(r, 600));
     }
     busy = false; updateUI();
 }
 
-async function handleAction(type) {
-    if (state === "FINISHED") {
-        if (type === "FIST") {
-            progress += 5;
-            document.getElementById('fist-progress').style.width = progress + "%";
-            if (progress >= 100) resetGame();
-        } else {
-            progress = Math.max(0, progress - 3);
-            document.getElementById('fist-progress').style.width = progress + "%";
-        }
-        return;
-    }
-
-    if (busy || cooldown) return;
-
+function updateHintText() {
+    const h1 = document.getElementById('hint-1');
+    const h2 = document.getElementById('hint-2');
     if (state === "BETTING") {
-        if (type === "HIT" && money >= 100) {
-            bet += 100; money -= 100; flashAction("☝️");
-            cooldown = true; updateUI(); await wait(1200); cooldown = false;
-        } else if (type === "STAND" && bet > 0) {
-            flashAction("🖐️"); await wait(500); startRound();
+        h1.innerText = "☝️ 保持食指：下注 ($100)";
+        h2.innerText = "🖐️ 保持手掌：确认开局";
+    } else {
+        h1.innerText = "☝️ 保持食指：要牌 (Hit)";
+        h2.innerText = "🖐️ 保持手掌：停牌 (Stand)";
+    }
+}
+
+async function triggerAction(action) {
+    if (busy || isCooling) return;
+    
+    if (state === "BETTING") {
+        if (action === "HIT" && money >= 100) {
+            money -= 100; bet += 100; updateUI();
+            enterCoolDown(1200); // 慢一点：下注冷却1.2秒
+        } else if (action === "STAND" && bet > 0) {
+            startRound();
         }
     } else if (state === "PLAYING") {
-        if (type === "HIT") {
-            busy = true; flashAction("☝️");
-            const c = deck.pop(); pHand.push(c); renderCard(c, 'player-hand');
-            if (getScore(pHand) > 21) finalize("LOSE", "你爆牌了", "庄家收走了筹码");
-            else { updateUI(); await wait(800); busy = false; }
-        } else if (type === "STAND") {
-            busy = true; flashAction("🖐️"); await wait(500);
-            const last = document.getElementById('dealer-hand').lastChild;
-            last.className = `card ${dHand[1].isRed ? 'red' : ''}`;
-            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:40px;text-align:center;margin-top:25px">${dHand[1].suit}</div>`;
-            await wait(800);
+        if (action === "HIT") {
+            busy = true;
+            const c = deck.pop(); pHand.push(c);
+            document.getElementById('player-cards').appendChild(createCard(c));
+            if (getScore(pHand) > 21) finalize("LOSE", "你爆牌了！");
+            else { updateUI(); await new Promise(r => setTimeout(r, 800)); busy = false; }
+        } else if (action === "STAND") {
+            busy = true;
+            const dc = document.getElementById('dealer-cards');
+            dc.innerHTML = ''; dHand.forEach(c => dc.appendChild(createCard(c)));
+            await new Promise(r => setTimeout(r, 800));
             while(getScore(dHand) < 17) {
-                const c = deck.pop(); dHand.push(c); renderCard(c, 'dealer-hand'); await wait(800);
+                const c = deck.pop(); dHand.push(c); dc.appendChild(createCard(c));
+                await new Promise(r => setTimeout(r, 800));
             }
             const ps = getScore(pHand), ds = getScore(dHand);
-            if (ds > 21 || ps > ds) finalize("WIN", "你赢了！", "大获全胜");
-            else if (ps < ds) finalize("LOSE", "庄家获胜", "运气稍逊一筹");
-            else finalize("PUSH", "平局", "筹码已退回");
+            if (ds > 21 || ps > ds) finalize("WIN", "你赢了！");
+            else if (ps < ds) finalize("LOSE", "庄家赢了");
+            else finalize("PUSH", "平局");
         }
     }
+}
+
+function enterCoolDown(ms) {
+    isCooling = true;
+    setTimeout(() => isCooling = false, ms);
 }
 
 function getScore(hand) {
@@ -184,64 +177,75 @@ function getScore(hand) {
     while(s>21 && a>0){s-=10;a--} return s;
 }
 
-function finalize(res, title, msg) {
-    if (res === "WIN") money += bet * 2;
-    if (res === "PUSH") money += bet;
-    state = "FINISHED"; progress = 0;
-    document.getElementById('res-title').innerText = title;
-    document.getElementById('res-title').style.color = res === "WIN" ? "var(--cyan)" : (res === "LOSE" ? "var(--red)" : "var(--gold)");
-    document.getElementById('res-detail').innerText = msg;
-    document.getElementById('overlay').style.display = "flex";
+function finalize(result, msg) {
+    if (result === "WIN") money += bet * 2;
+    else if (result === "PUSH") money += bet;
+    state = "FINISHED"; fistTimer = 0;
+    document.getElementById('res-title').innerText = (result === "WIN" ? "🏆 WINNER" : (result === "LOSE" ? "❌ LOSE" : "🤝 PUSH"));
+    document.getElementById('res-title').style.color = result === "WIN" ? "var(--cyan)" : "var(--red)";
+    document.getElementById('res-msg').innerText = msg;
+    document.getElementById('result-overlay').style.display = "flex";
 }
 
 function resetGame() {
-    state = "BETTING"; bet = 0; progress = 0;
-    document.getElementById('overlay').style.display = "none";
-    document.getElementById('player-hand').innerHTML = '';
-    document.getElementById('dealer-hand').innerHTML = '';
-    updateInstructions();
-    updateUI();
-    showPop("🔄 新局开启");
+    state = "BETTING"; bet = 0; fistTimer = 0;
+    document.getElementById('result-overlay').style.display = "none";
+    document.getElementById('player-cards').innerHTML = '';
+    document.getElementById('dealer-cards').innerHTML = '';
+    updateHintText(); updateUI();
 }
 
 function updateUI() {
     document.getElementById('m-val').innerText = `$${money}`;
     document.getElementById('b-val').innerText = `$${bet}`;
-    document.getElementById('player-score').innerText = `点数: ${getScore(pHand)}`;
+    document.getElementById('p-score').innerText = `点数: ${getScore(pHand)}`;
 }
 
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
 hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.8, minTrackingConfidence: 0.8 });
 hands.onResults((res) => {
-    const canvas = document.getElementById('output_canvas');
-    const ctx = canvas.getContext('2d');
-    ctx.save(); ctx.clearRect(0, 0, 240, 180); ctx.scale(-1, 1); ctx.translate(-240, 0);
-    ctx.drawImage(res.image, 0, 0, 240, 180);
+    canvasElement.width = window.innerWidth;
+    canvasElement.height = window.innerHeight;
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
     if (res.multiHandLandmarks && res.multiHandLandmarks[0]) {
         const lm = res.multiHandLandmarks[0];
+        // 关键修复：绘制对齐的骨架
+        drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 4});
+        drawLandmarks(canvasCtx, lm, {color: '#00ffff', lineWidth: 2, radius: 4});
+
         const up = (i) => lm[i].y < lm[i-2].y;
-        
         const isIndex = up(8) && !up(12) && !up(16) && !up(20);
         const isPalm = up(8) && up(12) && up(16) && up(20);
-        // 握拳判定
-        const isFist = (lm[8].y > lm[6].y) && (lm[12].y > lm[10].y) && (lm[16].y > lm[14].y) && (lm[20].y > lm[18].y);
+        const isFist = !up(8) && !up(12) && !up(16) && !up(20);
 
-        // UI 实时反馈：给正在匹配的文字行加高亮
-        document.getElementById('line-1').className = isIndex ? 'instr-line active-action' : 'instr-line';
-        document.getElementById('line-2').className = isPalm ? 'instr-line active-action' : 'instr-line';
+        // 视觉反馈
+        document.getElementById('hint-1').className = isIndex ? 'instr active' : 'instr';
+        document.getElementById('hint-2').className = isPalm ? 'instr active' : 'instr';
 
-        let type = isIndex ? "HIT" : (isPalm ? "STAND" : (isFist ? "FIST" : "NONE"));
-        handleAction(type);
+        if (state === "FINISHED") {
+            if (isFist) {
+                fistTimer += 4;
+                document.getElementById('progress-fill').style.width = fistTimer + "%";
+                if (fistTimer >= 100) resetGame();
+            } else {
+                fistTimer = Math.max(0, fistTimer - 2);
+                document.getElementById('progress-fill').style.width = fistTimer + "%";
+            }
+        } else {
+            if (isIndex) triggerAction("HIT");
+            else if (isPalm) triggerAction("STAND");
+        }
     }
-    ctx.restore();
+    canvasCtx.restore();
 });
 
-const camera = new Camera(document.getElementById('input_video'), {
-    onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
-    width: 640, height: 480
+const camera = new Camera(videoElement, {
+    onFrame: async () => { await hands.send({image: videoElement}); },
+    width: 1280, height: 720
 });
-camera.start().then(() => updateInstructions());
+camera.start();
 </script>
 </body>
 </html>
