@@ -2,97 +2,62 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>灵境 21 点 - 纯手控跳转版</title>
+    <title>灵境 21 点 - 暴力重置版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
         :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; }
-        body { margin: 0; background: #000 !important; color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; }
-        
-        #output_canvas { 
-            position: fixed !important; bottom: 20px !important; right: 20px !important; 
-            z-index: 1000 !important; width: 220px !important; height: 165px !important; 
-            border: 2px solid var(--gold); border-radius: 12px;
-            transform: scaleX(-1); background: #111;
-        }
-
-        #game-ui { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-around; padding: 20px; }
+        body { margin: 0; background: #000 !important; color: white; font-family: sans-serif; overflow: hidden; }
+        #output_canvas { position: fixed; bottom: 20px; right: 20px; z-index: 1000; width: 220px; height: 165px; border: 2px solid var(--gold); border-radius: 12px; transform: scaleX(-1); }
+        #game-ui { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-around; }
         .stats-bar { display: flex; gap: 40px; background: rgba(30,30,40,0.9); padding: 15px 50px; border-radius: 15px; border: 1px solid var(--gold); }
         .stat-val { color: var(--gold); font-size: 32px; font-weight: bold; }
-
-        .hand { display: flex; gap: 15px; min-height: 160px; justify-content: center; }
-        .card { 
-            width: 100px; height: 145px; background: white; color: black; border-radius: 10px; padding: 10px; 
-            box-sizing: border-box; font-weight: bold; font-size: 22px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            animation: card-in 0.5s ease-out;
-        }
-        .card.hidden { background: #1a1a2e; border: 2px solid var(--gold); color: transparent; }
+        .hand { display: flex; gap: 15px; min-height: 160px; }
+        .card { width: 100px; height: 145px; background: white; color: black; border-radius: 10px; padding: 10px; box-sizing: border-box; font-weight: bold; font-size: 22px; }
+        .card.hidden { background: #1a1a2e; border: 2px solid var(--gold); }
         .card.red { color: var(--red); }
-        @keyframes card-in { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        #action-pop { 
-            position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); 
-            font-size: 60px; opacity: 0; pointer-events: none; z-index: 1500;
-        }
+        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
+        .progress-box { width: 300px; height: 10px; background: #222; margin-top: 30px; border-radius: 5px; overflow: hidden; border: 1px solid #444; }
+        #progress { width: 0%; height: 100%; background: var(--gold); }
+        #action-pop { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 50px; opacity: 0; pointer-events: none; }
         .pop-anim { animation: pop-fade 0.8s ease-out; }
-        @keyframes pop-fade { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -100%) scale(1.2); } }
-
-        #main-hint { font-size: 1.2em; color: var(--cyan); background: rgba(0,0,0,0.8); padding: 12px 35px; border-radius: 50px; border: 1px solid var(--cyan); }
-        
-        /* 结算全屏层 */
-        #overlay { 
-            position: fixed; inset: 0; background: rgba(0,0,0,0.98); 
-            display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; 
-        }
-        .progress-box { width: 300px; height: 10px; background: #222; margin-top: 30px; border-radius: 5px; border: 1px solid #444; overflow: hidden; }
-        #progress { width: 0%; height: 100%; background: var(--gold); transition: width 0.05s linear; }
+        @keyframes pop-fade { 0% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -100%); } }
     </style>
 </head>
 <body>
-
 <div id="action-pop"></div>
-<video id="input_video" style="display:none;" playsinline></video>
+<video id="input_video" style="display:none;"></video>
 <canvas id="output_canvas"></canvas>
-
 <div id="game-ui">
     <div class="stats-bar">
-        <div style="text-align:center">资产<div id="m-val" class="stat-val">$1000</div></div>
-        <div style="text-align:center">下注<div id="b-val" class="stat-val">$0</div></div>
+        <div>资产<div id="m-val" class="stat-val">$1000</div></div>
+        <div>下注<div id="b-val" class="stat-val">$0</div></div>
     </div>
     <div id="dealer-hand" class="hand"></div>
-    <div id="main-hint">🔮 灵境感应就绪</div>
-    <div>
-        <div id="player-hand" class="hand"></div>
-        <div id="player-score" style="text-align:center; color:var(--gold); font-size: 1.8em; margin-top:10px; font-weight:bold;">点数: 0</div>
-    </div>
+    <div id="player-hand" class="hand"></div>
+    <div id="player-score" style="font-size: 2em; color: var(--gold);">点数: 0</div>
 </div>
-
 <div id="overlay">
-    <h1 id="res-title" style="font-size: 5em; margin: 0;"></h1>
-    <p id="res-detail" style="font-size: 1.8em; color: #aaa; margin: 20px 0;"></p>
-    <div style="color:var(--gold); font-size: 1.5em; font-weight: bold;">✊ 保持握拳：立即开启新局</div>
+    <h1 id="res-title" style="font-size: 5em;">结算</h1>
+    <p id="res-detail" style="font-size: 1.5em; color: #888;"></p>
+    <div style="color:var(--gold); font-size: 1.5em; margin-top:20px;">✊ 握紧拳头：开启新局</div>
     <div class="progress-box"><div id="progress"></div></div>
 </div>
 
 <script>
 let money = 1000, bet = 0, state = "BETTING", pHand = [], dHand = [], deck = [];
-let busy = false, cooldown = false, fistHoldTime = 0;
+let busy = false, cooldown = false, fistProgress = 0;
 
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-function showPop(text) {
-    const pop = document.getElementById('action-pop');
-    pop.innerText = text;
-    pop.classList.remove('pop-anim');
-    void pop.offsetWidth; 
-    pop.classList.add('pop-anim');
+function showPop(txt) {
+    const p = document.getElementById('action-pop');
+    p.innerText = txt; p.className = 'pop-anim';
+    setTimeout(() => p.className = '', 800);
 }
 
 function shuffle() {
     const s = ['♠','♥','♣','♦'], v = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-    let d = [];
-    s.forEach(suit => v.forEach(val => d.push({suit, val, isRed: (suit==='♥'||suit==='♦')})));
+    let d = []; s.forEach(suit => v.forEach(val => d.push({suit, val, isRed: suit==='♥'||suit==='♦'})));
     return d.sort(() => Math.random() - 0.5);
 }
 
@@ -105,149 +70,103 @@ function renderCard(card, target, isHidden = false) {
 
 async function startRound() {
     busy = true; deck = shuffle(); pHand = []; dHand = [];
-    document.getElementById('player-hand').innerHTML = '';
-    document.getElementById('dealer-hand').innerHTML = '';
+    document.getElementById('player-hand').innerHTML = ''; document.getElementById('dealer-hand').innerHTML = '';
     for(let i=0; i<2; i++) {
-        pHand.push(deck.pop()); renderCard(pHand[i], 'player-hand'); await wait(600);
-        dHand.push(deck.pop()); renderCard(dHand[i], 'dealer-hand', i===1); await wait(600);
+        pHand.push(deck.pop()); renderCard(pHand[i], 'player-hand'); await new Promise(r => setTimeout(r, 500));
+        dHand.push(deck.pop()); renderCard(dHand[i], 'dealer-hand', i===1); await new Promise(r => setTimeout(r, 500));
     }
     state = "PLAYING"; busy = false; updateUI();
 }
 
-async function handleAction(type) {
-    // 核心修复：如果在结算页面，唯一允许的动作是握拳触发重启
-    if (state === "FINISHED") {
-        if (type === "FIST") {
-            fistHoldTime += 4; // 增加积累速度
-            document.getElementById('progress').style.width = fistHoldTime + "%";
-            if (fistHoldTime >= 100) {
-                fistHoldTime = 0;
-                resetRound(); // 强制执行跳转
-            }
-        } else {
-            fistHoldTime = Math.max(0, fistHoldTime - 3); // 拳头松开进度倒退
-            document.getElementById('progress').style.width = fistHoldTime + "%";
-        }
-        return; 
-    }
-
-    if (busy || cooldown) return;
-
-    if (state === "BETTING") {
-        if (type === "HIT" && money >= 100) {
-            bet += 100; money -= 100; showPop("☝️ +$100");
-            cooldown = true; updateUI(); await wait(1200); cooldown = false;
-        } else if (type === "STAND" && bet > 0) {
-            state = "DEALING"; showPop("🖐️ GO!"); await wait(800); startRound();
-        }
-    } else if (state === "PLAYING") {
-        if (type === "HIT") {
-            busy = true; showPop("☝️ 要牌");
-            const c = deck.pop(); pHand.push(c); renderCard(c, 'player-hand');
-            updateUI(); await wait(800);
-            if (getScore(pHand) > 21) finalize("LOSE", "你爆牌了", "庄家收走了筹码");
-            else busy = false;
-        } else if (type === "STAND") {
-            busy = true; showPop("🖐️ 停牌"); await wait(800);
-            const last = document.getElementById('dealer-hand').lastChild;
-            last.className = `card ${dHand[1].isRed ? 'red' : ''}`;
-            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:40px;text-align:center;margin-top:20px">${dHand[1].suit}</div>`;
-            await wait(1000);
-            while(getScore(dHand) < 17) {
-                const c = deck.pop(); dHand.push(c); renderCard(c, 'dealer-hand'); await wait(1000);
-            }
-            const ps = getScore(pHand), ds = getScore(dHand);
-            if (ds > 21 || ps > ds) finalize("WIN", "你赢了！", "大获全胜");
-            else if (ps < ds) finalize("LOSE", "庄家获胜", "运气差了一点");
-            else finalize("PUSH", "平局", "筹码已退回");
-        }
-    }
-}
-
-function getScore(hand) {
-    let s = 0, a = 0;
-    hand.forEach(c => { if(c.val==='A'){a++;s+=11} else if(['J','Q','K'].includes(c.val))s+=10; else s+=parseInt(c.val); });
-    while(s>21 && a>0){s-=10;a--} return s;
-}
-
 function finalize(res, title, msg) {
-    state = "FINISHED"; // 锁定状态
-    fistHoldTime = 0;
+    state = "FINISHED"; fistProgress = 0;
     document.getElementById('res-title').innerText = title;
     document.getElementById('res-title').style.color = res === "WIN" ? "var(--cyan)" : (res === "LOSE" ? "var(--red)" : "var(--gold)");
     document.getElementById('res-detail').innerText = msg;
-    document.getElementById('progress').style.width = "0%";
     document.getElementById('overlay').style.display = "flex";
 }
 
 function resetRound() {
-    // 强制清理所有 UI 和状态
+    console.log("执行强制重置...");
+    state = "BETTING"; bet = 0; busy = false; cooldown = false; fistProgress = 0;
     document.getElementById('overlay').style.display = "none";
     document.getElementById('player-hand').innerHTML = '';
     document.getElementById('dealer-hand').innerHTML = '';
-    document.getElementById('progress').style.width = "0%";
-    
-    bet = 0; pHand = []; dHand = []; 
-    busy = false; cooldown = false; fistHoldTime = 0;
-    state = "BETTING"; 
-    
-    showPop("🔄 新局开启");
     updateUI();
-    document.getElementById('main-hint').innerHTML = "☝️ 保持食指：下注 ($100)<br>🖐️ 保持手掌：确认开局";
+    showPop("🔄 新局");
 }
 
 function updateUI() {
     document.getElementById('m-val').innerText = `$${money}`;
     document.getElementById('b-val').innerText = `$${bet}`;
-    document.getElementById('player-score').innerText = `点数: ${getScore(pHand)}`;
+    let s = 0, a = 0;
+    pHand.forEach(c => { if(c.val==='A'){a++;s+=11} else if(['J','Q','K'].includes(c.val))s+=10; else s+=parseInt(c.val); });
+    while(s>21 && a>0){s-=10;a--}
+    document.getElementById('player-score').innerText = `点数: ${s}`;
+    return s;
 }
 
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.8, minTrackingConfidence: 0.8 });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 hands.onResults((res) => {
     const canvas = document.getElementById('output_canvas');
     const ctx = canvas.getContext('2d');
-    ctx.save(); ctx.clearRect(0, 0, 220, 165);
-    ctx.scale(-1, 1); ctx.translate(-220, 0);
+    ctx.save(); ctx.clearRect(0, 0, 220, 165); ctx.scale(-1, 1); ctx.translate(-220, 0);
     ctx.drawImage(res.image, 0, 0, 220, 165);
     
     if (res.multiHandLandmarks && res.multiHandLandmarks[0]) {
         const lm = res.multiHandLandmarks[0];
-        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 2});
-        
         const up = (i) => lm[i].y < lm[i-2].y;
-        const dist = (p1, p2) => Math.sqrt(Math.pow(p1.x-p2.x,2) + Math.pow(p1.y-p2.y,2));
-
-        // 食指判定
+        
+        // 极简判定
         const isIndex = up(8) && !up(12) && !up(16) && !up(20);
-        // 手掌判定
         const isPalm = up(8) && up(12) && up(16) && up(20);
-        // 握拳判定加强：四个手指尖距离掌心(lm[0])的距离平均值非常小
-        const fistAvgDist = (dist(lm[8], lm[0]) + dist(lm[12], lm[0]) + dist(lm[16], lm[0]) + dist(lm[20], lm[0])) / 4;
-        const isFist = fistAvgDist < 0.25; 
+        const isFist = !up(8) && !up(12) && !up(16) && !up(20); // 四指全收就是拳
 
-        let type = isIndex ? "HIT" : (isPalm ? "STAND" : (isFist ? "FIST" : "NONE"));
-        handleAction(type);
-    } else {
-        // 没检测到手，进度条慢慢回退
         if (state === "FINISHED") {
-            fistHoldTime = Math.max(0, fistHoldTime - 2);
-            document.getElementById('progress').style.width = fistHoldTime + "%";
+            if (isFist) {
+                fistProgress += 3;
+                document.getElementById('progress').style.width = fistProgress + "%";
+                if (fistProgress >= 100) resetRound();
+            } else {
+                fistProgress = Math.max(0, fistProgress - 1);
+                document.getElementById('progress').style.width = fistProgress + "%";
+            }
+        } else if (!busy && !cooldown) {
+            if (state === "BETTING") {
+                if (isIndex && money >= 100) {
+                    bet += 100; money -= 100; showPop("+$100");
+                    cooldown = true; updateUI(); setTimeout(() => cooldown = false, 1200);
+                } else if (isPalm && bet > 0) {
+                    state = "DEALING"; startRound();
+                }
+            } else if (state === "PLAYING") {
+                if (isIndex) {
+                    busy = true; const c = deck.pop(); pHand.push(c); renderCard(c, 'player-hand');
+                    if (updateUI() > 21) finalize("LOSE", "爆牌", "庄家赢"); else setTimeout(()=>busy=false, 800);
+                } else if (isPalm) {
+                    busy = true; // 停牌逻辑简化处理
+                    const last = document.getElementById('dealer-hand').lastChild;
+                    last.className = 'card'; last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:40px;text-align:center;margin-top:20px">${dHand[1].suit}</div>`;
+                    setTimeout(() => {
+                        let ps = updateUI(), ds = 0, da = 0;
+                        dHand.forEach(c => { if(c.val==='A'){da++;ds+=11} else if(['J','Q','K'].includes(c.val))ds+=10; else ds+=parseInt(c.val); });
+                        if (ds > ps) finalize("LOSE", "庄家赢", "点数更高");
+                        else if (ds < ps) { money += bet*2; finalize("WIN", "你赢了", "恭喜"); }
+                        else { money += bet; finalize("PUSH", "平局", "退回筹码"); }
+                    }, 1000);
+                }
+            }
         }
     }
     ctx.restore();
 });
 
-const video = document.getElementById('input_video');
-const camera = new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width: 640, height: 480 });
-window.onload = () => {
-    document.getElementById('output_canvas').width = 220;
-    document.getElementById('output_canvas').height = 165;
-    camera.start().then(() => {
-        document.getElementById('main-hint').innerHTML = "☝️ 保持食指：下注 ($100)<br>🖐️ 保持手掌：确认开局";
-        updateUI();
-    });
-};
+const camera = new Camera(document.getElementById('input_video'), {
+    onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
+    width: 640, height: 480
+});
+camera.start();
 </script>
 </body>
 </html>
