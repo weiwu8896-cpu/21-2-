@@ -57,8 +57,9 @@
     </div>
     <div id="dealer-hand" class="hand"></div>
     <div id="hint-panel">
-        <div id="h1" class="step">☝️ 保持食指：下注/加牌</div>
-        <div id="h2" class="step">🖐️ 保持张开：确认开局/停牌</div>
+        <div id="h1" class="step">☝️ 食指：加注</div>
+        <div id="h3" class="step" style="color:#ff4757">👍 大拇指：撤回筹码</div>
+        <div id="h2" class="step">🖐️ 手掌：确认/停牌</div>
     </div>
     <div>
         <div id="player-hand" class="hand"></div>
@@ -76,6 +77,11 @@
 <script>
 let money = 1000, bet = 0, state = "BETTING", pHand = [], dHand = [], deck = [];
 let isBusy = false, cooldown = false, resetCounter = 0;
+
+// --- 新增：识别防抖逻辑 ---
+let lastGesture = "NONE";
+let gestureFrames = 0;
+const REQUIRE_FRAMES = 8; // 需要连续识别 8 帧（约0.25秒）才生效
 
 function updateUI() {
     document.getElementById('m-val').innerText = `$${money}`;
@@ -96,15 +102,10 @@ async function addCard(target, handArray, isHidden = false) {
     await new Promise(r => setTimeout(r, 600));
 }
 
-// 核心重置函数：确保进入第二局时所有锁定解除
 function resetGame() {
-    state = "BETTING"; 
-    bet = 0; 
-    resetCounter = 0;
-    isBusy = false; 
-    cooldown = false;
-    pHand = []; 
-    dHand = [];
+    state = "BETTING"; bet = 0; resetCounter = 0;
+    isBusy = false; cooldown = false;
+    pHand = []; dHand = [];
     document.getElementById('overlay').style.display = "none";
     document.getElementById('player-hand').innerHTML = '';
     document.getElementById('dealer-hand').innerHTML = '';
@@ -123,8 +124,8 @@ async function startRound() {
     isBusy = false;
 }
 
+// 核心逻辑：增加了撤回判断逻辑
 async function handleGesture(type) {
-    // 状态 1：结算中，只允许握拳重开，完全屏蔽下注操作
     if (state === "FINISHED") {
         if (type === "FIST") {
             resetCounter += 6; 
@@ -139,15 +140,15 @@ async function handleGesture(type) {
 
     if (isBusy || cooldown) return;
 
-    // 状态 2：下注阶段
     if (state === "BETTING") {
         if (type === "HIT" && money >= 100) { 
-            money -= 100; bet += 100; triggerCD(800); 
+            money -= 100; bet += 100; triggerCD(1000); 
+        } else if (type === "THUMB" && bet >= 100) { // 大拇指撤回
+            money += 100; bet -= 100; triggerCD(1000);
         } else if (type === "STAND" && bet > 0) {
             startRound();
         }
     } 
-    // 状态 3：游戏中
     else if (state === "PLAYING") {
         if (type === "HIT") {
             isBusy = true; await addCard('player-hand', pHand);
@@ -198,21 +199,41 @@ hands.onResults((res) => {
         
         const dist = (p1, p2) => Math.sqrt(Math.pow(p1.x-p2.x, 2) + Math.pow(p1.y-p2.y, 2));
         const palmBase = lm[0];
-        const avgDist = (dist(lm[8], palmBase) + dist(lm[12], palmBase) + dist(lm[16], palmBase) + dist(lm[20], palmBase)) / 4;
         
-        // 握拳判定
-        const isFist = avgDist < 0.23 || (lm[8].y > lm[6].y && lm[12].y > lm[10].y && lm[16].y > lm[14].y);
-        const isIndex = lm[8].y < lm[6].y && lm[12].y > lm[10].y && lm[16].y > lm[14].y;
-        const isPalm = lm[8].y < lm[6].y && lm[12].y < lm[10].y && lm[16].y < lm[14].y;
+        // 识别逻辑
+        const isFist = (dist(lm[8], palmBase) + dist(lm[12], palmBase) + dist(lm[16], palmBase) + dist(lm[20], palmBase))/4 < 0.23;
+        const isIndex = lm[8].y < lm[6].y && lm[12].y > lm[10].y && lm[16].y > lm[14].y && lm[20].y > lm[18].y;
+        const isPalm = lm[8].y < lm[6].y && lm[12].y < lm[10].y && lm[16].y < lm[14].y && lm[20].y < lm[18].y;
+        // 大拇指判定：大拇指尖高度高于掌心，且距离食指根部有一定水平距离
+        const isThumb = lm[4].y < lm[3].y && lm[8].y > lm[6].y && lm[12].y > lm[10].y && lm[16].y > lm[14].y;
 
-        document.getElementById('h1').className = isIndex ? 'step active' : 'step';
-        document.getElementById('h2').className = isPalm ? 'step active' : 'step';
+        let currentRawGesture = "NONE";
+        if (isFist) currentRawGesture = "FIST";
+        else if (isIndex) currentRawGesture = "HIT";
+        else if (isPalm) currentRawGesture = "STAND";
+        else if (isThumb) currentRawGesture = "THUMB";
 
-        if(isFist && state === "FINISHED") {
+        // 防抖缓冲处理
+        if (currentRawGesture !== "NONE" && currentRawGesture === lastGesture) {
+            gestureFrames++;
+        } else {
+            lastGesture = currentRawGesture;
+            gestureFrames = 0;
+        }
+
+        // 仅在结算界面允许握拳快速响应，其他手势需要缓冲
+        const effectiveGesture = (state === "FINISHED" && currentRawGesture === "FIST") ? "FIST" : (gestureFrames > REQUIRE_FRAMES ? currentRawGesture : "NONE");
+
+        document.getElementById('h1').className = (effectiveGesture === "HIT") ? 'step active' : 'step';
+        document.getElementById('h2').className = (effectiveGesture === "STAND") ? 'step active' : 'step';
+        document.getElementById('h3').className = (effectiveGesture === "THUMB") ? 'step active' : 'step';
+
+        if(effectiveGesture === "FIST" && state === "FINISHED") {
             ctx.strokeStyle = "var(--gold)"; ctx.lineWidth = 6;
             ctx.beginPath(); ctx.arc(lm[9].x * canvas.width, lm[9].y * canvas.height, 45, 0, Math.PI*2); ctx.stroke();
         }
-        handleGesture(isFist ? "FIST" : (isIndex ? "HIT" : (isPalm ? "STAND" : "NONE")));
+        
+        handleGesture(effectiveGesture);
     }
     ctx.restore();
 });
