@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>灵境 21 点 - 视觉重构版</title>
+    <title>灵境 21 点 - 最终完美版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
@@ -10,48 +10,43 @@
         :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; }
         body { margin: 0; background: #000; color: white; font-family: system-ui; overflow: hidden; }
         
-        /* 彻底解决压缩问题：强制填充容器 */
+        /* 摄像头框：确保始终置顶且可见 */
         #cam-box { 
-            position: fixed; bottom: 20px; right: 20px; z-index: 1000; 
-            width: 320px; height: 240px; border: 3px solid var(--gold); 
-            border-radius: 15px; overflow: hidden; background: #111;
-            box-shadow: 0 0 20px rgba(212,175,55,0.3);
+            position: fixed; bottom: 20px; right: 20px; z-index: 3000; 
+            width: 300px; height: 225px; border: 3px solid var(--gold); 
+            border-radius: 15px; overflow: hidden; background: #000;
         }
-        #output_canvas { 
-            width: 100%; height: 100%; 
-            object-fit: cover; /* 关键：强制铺满，不留黑边 */
-            transform: scaleX(-1); 
-        }
+        #output_canvas { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
         #game-ui { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 40px 0; box-sizing: border-box; }
         .stats { display: flex; gap: 60px; background: rgba(255,255,255,0.05); padding: 20px 60px; border-radius: 20px; border: 1px solid var(--gold); backdrop-filter: blur(10px); }
         .val { font-size: 36px; font-weight: bold; color: var(--gold); text-align: center; }
 
-        /* 发牌区域修复：防止溢出 */
-        .hand { display: flex; gap: 15px; min-height: 180px; width: 80%; justify-content: center; align-items: center; flex-wrap: nowrap; }
+        .hand { display: flex; gap: 10px; min-height: 180px; width: 90%; justify-content: center; align-items: center; }
         .card { 
-            width: 110px; height: 160px; background: white; color: black; border-radius: 12px; padding: 10px; 
-            box-sizing: border-box; font-weight: bold; font-size: 24px; box-shadow: 0 8px 15px rgba(0,0,0,0.4);
-            animation: cardIn 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28); flex-shrink: 0;
+            width: 100px; height: 145px; background: white; color: black; border-radius: 10px; padding: 8px; 
+            box-sizing: border-box; font-weight: bold; font-size: 22px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            animation: cardIn 0.4s ease-out; flex-shrink: 0; position: relative;
         }
-        .card.hidden { background: linear-gradient(45deg, #1a1a2e, #111); border: 2px solid var(--gold); color: transparent; }
+        .card.hidden { background: #1a1a2e; border: 2px solid var(--gold); color: transparent; }
         .card.red { color: var(--red); }
-        @keyframes cardIn { from { transform: translateY(-100px) rotate(15deg); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes cardIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-        /* 提示框增强 */
         #hint-panel {
-            background: rgba(0,0,0,0.85); padding: 25px 50px; border-radius: 40px; 
-            border: 2px solid var(--cyan); box-shadow: 0 0 30px rgba(0,255,255,0.15);
-            text-align: center; min-width: 400px;
+            background: rgba(0,0,0,0.8); padding: 20px 40px; border-radius: 30px; 
+            border: 1px solid var(--cyan); text-align: center; z-index: 100;
         }
-        .step { font-size: 1.6em; margin: 8px 0; transition: 0.4s; opacity: 0.4; }
-        .step.active { opacity: 1; color: var(--cyan); transform: scale(1.1); text-shadow: 0 0 10px var(--cyan); }
-        .step.warn { opacity: 1; color: var(--red); }
+        .step { font-size: 1.4em; margin: 5px 0; transition: 0.3s; opacity: 0.3; }
+        .step.active { opacity: 1; color: var(--cyan); transform: scale(1.1); }
 
-        /* 结算页 */
-        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.96); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
-        .bar-wrap { width: 300px; height: 8px; background: #222; margin-top: 30px; border-radius: 4px; overflow: hidden; }
-        #bar-fill { width: 0%; height: 100%; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+        /* 结算页修复：降低层级，确保不完全遮挡，但样式要显眼 */
+        #overlay { 
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9); 
+            display: none; flex-direction: column; align-items: center; 
+            justify-content: center; z-index: 2000; backdrop-filter: blur(5px);
+        }
+        .bar-wrap { width: 300px; height: 12px; background: #222; margin-top: 30px; border-radius: 6px; border: 1px solid #444; overflow: hidden; }
+        #bar-fill { width: 0%; height: 100%; background: var(--gold); transition: width 0.1s; }
     </style>
 </head>
 <body>
@@ -62,7 +57,7 @@
 <div id="game-ui">
     <div class="stats">
         <div><div style="color:#888;font-size:14px">资产</div><div id="m-val" class="val">$1000</div></div>
-        <div><div style="color:#888;font-size:14px">本局下注</div><div id="b-val" class="val">$0</div></div>
+        <div><div style="color:#888;font-size:14px">本次下注</div><div id="b-val" class="val">$0</div></div>
     </div>
 
     <div id="dealer-hand" class="hand"></div>
@@ -75,14 +70,14 @@
 
     <div>
         <div id="player-hand" class="hand"></div>
-        <div id="p-score" style="text-align:center; color:var(--gold); font-size: 2.5em; margin-top:10px; font-weight:900;">0</div>
+        <div id="p-score" style="text-align:center; color:var(--gold); font-size: 2.2em; margin-top:10px; font-weight:900;">0</div>
     </div>
 </div>
 
 <div id="overlay">
-    <h1 id="res-msg" style="font-size: 6em; margin: 0;"></h1>
-    <p id="res-sub" style="font-size: 2em; color: #777;"></p>
-    <div style="color:var(--gold); font-size: 1.5em; margin-top:40px">✊ 保持握拳：重开下一局</div>
+    <h1 id="res-msg" style="font-size: 6em; margin: 0; text-shadow: 0 0 20px rgba(255,255,255,0.2);"></h1>
+    <p id="res-sub" style="font-size: 2.5em; color: #aaa; margin-top: 10px;"></p>
+    <div style="color:var(--gold); font-size: 1.8em; margin-top:50px; font-weight:bold;">✊ 保持握拳：重开下一局</div>
     <div class="bar-wrap"><div id="bar-fill"></div></div>
 </div>
 
@@ -93,7 +88,8 @@ let isBusy = false, cooldown = false, resetCounter = 0;
 function updateUI() {
     document.getElementById('m-val').innerText = `$${money}`;
     document.getElementById('b-val').innerText = `$${bet}`;
-    document.getElementById('p-score').innerText = getScore(pHand);
+    document.getElementById('p-score').innerText = `点数: ${getScore(pHand)}`;
+    
     const h1 = document.getElementById('h1'), h2 = document.getElementById('h2'), ht = document.getElementById('h-thumb');
     if(state === "BETTING") {
         h1.innerText = "☝️ 保持食指：加注 ($100)";
@@ -112,17 +108,16 @@ async function addCard(target, handArray, isHidden = false) {
     const container = document.getElementById(target);
     const div = document.createElement('div');
     div.className = `card ${isHidden ? 'hidden' : ''} ${card.isRed ? 'red' : ''}`;
-    div.innerHTML = isHidden ? '' : `<div>${card.val}</div><div style="font-size:48px;text-align:center;margin-top:20px">${card.suit}</div>`;
+    div.innerHTML = isHidden ? '' : `<div>${card.val}</div><div style="font-size:42px;text-align:center;margin-top:20px">${card.suit}</div>`;
     container.appendChild(div);
     updateUI();
-    await new Promise(r => setTimeout(r, 600)); // 物理发牌间隔，防止出一堆
+    await new Promise(r => setTimeout(r, 600));
 }
 
 async function startRound() {
     isBusy = true; state = "PLAYING";
-    deck = [];
     const suits = ['♠','♥','♣','♦'], vals = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-    suits.forEach(s => vals.forEach(v => deck.push({suit:s, val:v, isRed: s==='♥'||s==='♦'})));
+    deck = []; suits.forEach(s => vals.forEach(v => deck.push({suit:s, val:v, isRed: s==='♥'||s==='♦'})));
     deck.sort(() => Math.random() - 0.5);
     
     document.getElementById('player-hand').innerHTML = '';
@@ -133,32 +128,37 @@ async function startRound() {
     await addCard('dealer-hand', dHand);
     await addCard('player-hand', pHand);
     await addCard('dealer-hand', dHand, true);
-    
     isBusy = false;
 }
 
 async function handleGesture(type) {
-    if (isBusy || cooldown) return;
+    // 结算阶段逻辑：专门处理握拳重开
     if (state === "FINISHED") {
         if (type === "FIST") {
-            resetCounter += 2;
+            resetCounter += 3; // 握拳增加进度
             document.getElementById('bar-fill').style.width = resetCounter + "%";
             if(resetCounter >= 100) {
                 state = "BETTING"; bet = 0; resetCounter = 0;
+                document.getElementById('bar-fill').style.width = "0%";
                 document.getElementById('overlay').style.display = "none";
                 document.getElementById('player-hand').innerHTML = '';
                 document.getElementById('dealer-hand').innerHTML = '';
                 updateUI();
             }
-        } else { resetCounter = Math.max(0, resetCounter - 2); }
+        } else {
+            resetCounter = Math.max(0, resetCounter - 1); // 没握拳缓慢下降
+            document.getElementById('bar-fill').style.width = resetCounter + "%";
+        }
         return;
     }
 
+    if (isBusy || cooldown) return;
+
     if (state === "BETTING") {
         if (type === "HIT" && money >= 100) {
-            money -= 100; bet += 100; triggerCD(1200);
+            money -= 100; bet += 100; triggerCD(1000);
         } else if (type === "THUMB" && bet >= 100) {
-            money += 100; bet -= 100; triggerCD(1200);
+            money += 100; bet -= 100; triggerCD(1000);
         } else if (type === "STAND" && bet > 0) {
             startRound();
         }
@@ -172,18 +172,18 @@ async function handleGesture(type) {
             isBusy = true;
             const last = document.getElementById('dealer-hand').lastChild;
             last.className = `card ${dHand[1].isRed ? 'red' : ''}`;
-            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:48px;text-align:center;margin-top:20px">${dHand[1].suit}</div>`;
+            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:42px;text-align:center;margin-top:20px">${dHand[1].suit}</div>`;
             await new Promise(r => setTimeout(r, 800));
             while(getScore(dHand) < 17) { await addCard('dealer-hand', dHand); }
             const ps = getScore(pHand), ds = getScore(dHand);
-            if(ds > 21 || ps > ds) { money += bet*2; finalize("WIN", "你赢了！", "Great Job"); }
+            if(ds > 21 || ps > ds) { money += bet*2; finalize("WIN", "你赢了！", "Winner Winner!"); }
             else if(ds > ps) finalize("LOSE", "庄家赢了", "Dealer Wins");
             else { money += bet; finalize("PUSH", "平局", "Chips Returned"); }
         }
     }
 }
 
-function triggerCD(t) { cooldown = true; updateUI(); setTimeout(() => cooldown = false, t); }
+function triggerCD(t) { cooldown = true; setTimeout(() => cooldown = false, t); updateUI(); }
 
 function getScore(hand) {
     let s = 0, a = 0;
@@ -192,7 +192,7 @@ function getScore(hand) {
 }
 
 function finalize(res, t1, t2) {
-    state = "FINISHED";
+    state = "FINISHED"; resetCounter = 0;
     document.getElementById('res-msg').innerText = t1;
     document.getElementById('res-msg').style.color = res === "WIN" ? "var(--cyan)" : (res === "LOSE" ? "var(--red)" : "var(--gold)");
     document.getElementById('res-sub').innerText = t2;
@@ -200,37 +200,38 @@ function finalize(res, t1, t2) {
 }
 
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.8, minTrackingConfidence: 0.8 });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
 
 hands.onResults((res) => {
     const canvas = document.getElementById('output_canvas');
     const ctx = canvas.getContext('2d');
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 强制图像铺满 Canvas 像素网格
     ctx.drawImage(res.image, 0, 0, canvas.width, canvas.height);
 
     if (res.multiHandLandmarks && res.multiHandLandmarks[0]) {
         const lm = res.multiHandLandmarks[0];
-        // 绘制骨架确认连接
-        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 5});
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 4});
         
         const up = (i) => lm[i].y < lm[i-2].y;
         const isIndex = up(8) && !up(12) && !up(16) && !up(20);
         const isPalm = up(8) && up(12) && up(16) && up(20);
         const isThumb = lm[4].y < lm[3].y && !up(8) && !up(12) && !up(16) && !up(20);
-        const isFist = (lm[8].y > lm[6].y) && (lm[12].y > lm[10].y) && (lm[16].y > lm[14].y);
+        
+        // 握拳判定：所有手指关节点都在下方
+        const isFist = (lm[8].y > lm[6].y) && (lm[12].y > lm[10].y) && (lm[16].y > lm[14].y) && (lm[20].y > lm[18].y);
 
-        // 视觉反馈：在食指尖绘制确认光圈
-        if(isIndex) {
-            ctx.beginPath(); ctx.arc(lm[8].x * canvas.width, lm[8].y * canvas.height, 20, 0, Math.PI*2);
-            ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke();
-        }
-
+        // 视觉提示
         document.getElementById('h1').className = isIndex ? 'step active' : 'step';
         document.getElementById('h2').className = isPalm ? 'step active' : 'step';
-        document.getElementById('h-thumb').className = isThumb ? 'step warn' : 'step';
+        const ht = document.getElementById('h-thumb');
+        if(ht) ht.className = isThumb ? 'step active' : 'step';
+
+        // 判定圆圈
+        if(isFist && state === "FINISHED") {
+            ctx.beginPath(); ctx.arc(lm[9].x * canvas.width, lm[9].y * canvas.height, 40, 0, Math.PI*2);
+            ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 5; ctx.stroke();
+        }
 
         let type = isIndex ? "HIT" : (isPalm ? "STAND" : (isThumb ? "THUMB" : (isFist ? "FIST" : "NONE")));
         handleGesture(type);
@@ -240,12 +241,8 @@ hands.onResults((res) => {
 
 const camera = new Camera(document.getElementById('input_video'), {
     onFrame: async () => { 
-        // 动态同步 Canvas 像素尺寸与容器一致，防止拉伸错位
         const canvas = document.getElementById('output_canvas');
-        if(canvas.width !== canvas.clientWidth) {
-            canvas.width = canvas.clientWidth;
-            canvas.height = canvas.clientHeight;
-        }
+        if(canvas.width !== canvas.clientWidth) { canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; }
         await hands.send({image: document.getElementById('input_video')}); 
     },
     width: 640, height: 480
