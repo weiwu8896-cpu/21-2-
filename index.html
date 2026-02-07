@@ -2,197 +2,188 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>灵境 21 点 - 极客特效版</title>
+    <title>灵境 21 点 - 视觉重构版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <style>
-        :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; --green: #2ecc71; }
-        body { margin: 0; background: #000 !important; color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; }
+        :root { --gold: #d4af37; --cyan: #00ffff; --red: #ff4757; }
+        body { margin: 0; background: #000; color: white; font-family: system-ui; overflow: hidden; }
         
-        /* 摄像头小窗：固定比例防止错位 */
-        #cam-container {
-            position: fixed; bottom: 20px; right: 20px; z-index: 1000;
-            width: 280px; height: 210px; border: 2px solid var(--gold);
-            border-radius: 12px; overflow: hidden; background: #111;
+        /* 彻底解决压缩问题：强制填充容器 */
+        #cam-box { 
+            position: fixed; bottom: 20px; right: 20px; z-index: 1000; 
+            width: 320px; height: 240px; border: 3px solid var(--gold); 
+            border-radius: 15px; overflow: hidden; background: #111;
+            box-shadow: 0 0 20px rgba(212,175,55,0.3);
         }
-        #output_canvas { width: 100%; height: 100%; transform: scaleX(-1); }
-
-        #game-layout { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-around; padding: 20px 0; }
-        
-        .top-bar { display: flex; gap: 40px; background: rgba(255,255,255,0.05); padding: 15px 40px; border-radius: 20px; border: 1px solid var(--gold); backdrop-filter: blur(10px); }
-        .stat-item { text-align: center; }
-        .stat-val { font-size: 32px; font-weight: bold; color: var(--gold); text-shadow: 0 0 10px rgba(212,175,55,0.5); }
-
-        /* 指令区特效 */
-        #instruction-box {
-            text-align: center; padding: 25px 50px; border-radius: 40px; 
-            border: 2px solid rgba(0,255,255,0.2); background: rgba(0,0,0,0.8);
-            box-shadow: 0 0 30px rgba(0,255,255,0.1); transition: all 0.4s;
+        #output_canvas { 
+            width: 100%; height: 100%; 
+            object-fit: cover; /* 关键：强制铺满，不留黑边 */
+            transform: scaleX(-1); 
         }
-        .instr-line { font-size: 1.4em; margin: 10px 0; opacity: 0.5; transition: 0.3s; }
-        .active-action { opacity: 1; color: var(--cyan); transform: scale(1.15); font-weight: bold; text-shadow: 0 0 15px var(--cyan); }
-        .cancel-action { opacity: 1; color: var(--red); transform: scale(1.1); font-weight: bold; }
 
-        /* 卡牌区域 */
-        .hand-area { display: flex; gap: 15px; min-height: 180px; align-items: center; perspective: 1000px; }
+        #game-ui { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 40px 0; box-sizing: border-box; }
+        .stats { display: flex; gap: 60px; background: rgba(255,255,255,0.05); padding: 20px 60px; border-radius: 20px; border: 1px solid var(--gold); backdrop-filter: blur(10px); }
+        .val { font-size: 36px; font-weight: bold; color: var(--gold); text-align: center; }
+
+        /* 发牌区域修复：防止溢出 */
+        .hand { display: flex; gap: 15px; min-height: 180px; width: 80%; justify-content: center; align-items: center; flex-wrap: nowrap; }
         .card { 
             width: 110px; height: 160px; background: white; color: black; border-radius: 12px; padding: 10px; 
-            box-sizing: border-box; font-weight: bold; font-size: 24px; box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-            position: relative; animation: card-fly 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+            box-sizing: border-box; font-weight: bold; font-size: 24px; box-shadow: 0 8px 15px rgba(0,0,0,0.4);
+            animation: cardIn 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28); flex-shrink: 0;
         }
-        .card.hidden { background: linear-gradient(135deg, #1a1a2e 0%, #0a0a1a 100%); border: 2px solid var(--gold); color: transparent; }
+        .card.hidden { background: linear-gradient(45deg, #1a1a2e, #111); border: 2px solid var(--gold); color: transparent; }
         .card.red { color: var(--red); }
-        
-        @keyframes card-fly { 
-            0% { transform: translate(-500px, -200px) rotate(-20deg); opacity: 0; }
-            100% { transform: translate(0, 0) rotate(0); opacity: 1; }
-        }
+        @keyframes cardIn { from { transform: translateY(-100px) rotate(15deg); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
-        #toast { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 100px; pointer-events: none; z-index: 3000; transition: 0.3s; }
+        /* 提示框增强 */
+        #hint-panel {
+            background: rgba(0,0,0,0.85); padding: 25px 50px; border-radius: 40px; 
+            border: 2px solid var(--cyan); box-shadow: 0 0 30px rgba(0,255,255,0.15);
+            text-align: center; min-width: 400px;
+        }
+        .step { font-size: 1.6em; margin: 8px 0; transition: 0.4s; opacity: 0.4; }
+        .step.active { opacity: 1; color: var(--cyan); transform: scale(1.1); text-shadow: 0 0 10px var(--cyan); }
+        .step.warn { opacity: 1; color: var(--red); }
+
+        /* 结算页 */
+        #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.96); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
+        .bar-wrap { width: 300px; height: 8px; background: #222; margin-top: 30px; border-radius: 4px; overflow: hidden; }
+        #bar-fill { width: 0%; height: 100%; background: var(--gold); box-shadow: 0 0 10px var(--gold); }
     </style>
 </head>
 <body>
 
-<div id="toast"></div>
-<video id="input_video" style="display:none;" playsinline></video>
-<div id="cam-container"><canvas id="output_canvas"></canvas></div>
+<video id="input_video" style="display:none"></video>
+<div id="cam-box"><canvas id="output_canvas"></canvas></div>
 
-<div id="game-layout">
-    <div class="top-bar">
-        <div class="stat-item"><div style="color:#aaa">资产</div><div id="m-val" class="stat-val">$1000</div></div>
-        <div class="stat-item"><div style="color:#aaa">筹码</div><div id="b-val" class="stat-val">$0</div></div>
+<div id="game-ui">
+    <div class="stats">
+        <div><div style="color:#888;font-size:14px">资产</div><div id="m-val" class="val">$1000</div></div>
+        <div><div style="color:#888;font-size:14px">本局下注</div><div id="b-val" class="val">$0</div></div>
     </div>
 
-    <div id="dealer-hand" class="hand-area"></div>
+    <div id="dealer-hand" class="hand"></div>
 
-    <div id="instruction-box">
-        <div id="line-1" class="instr-line">☝️ 伸出食指：加注 ($100)</div>
-        <div id="line-thumb" class="instr-line">👍 伸大拇指：撤回 ($100)</div>
-        <div id="line-2" class="instr-line">🖐️ 张开手掌：确认开局</div>
+    <div id="hint-panel">
+        <div id="h1" class="step">☝️ 保持食指：加注 ($100)</div>
+        <div id="h-thumb" class="step">👍 伸大拇指：撤回筹码</div>
+        <div id="h2" class="step">🖐️ 保持张开：确认开局</div>
     </div>
 
     <div>
-        <div id="player-hand" class="hand-area"></div>
-        <div id="player-score" style="text-align:center; color:var(--gold); font-size: 2.2em; margin-top:15px; font-weight:bold;">0</div>
+        <div id="player-hand" class="hand"></div>
+        <div id="p-score" style="text-align:center; color:var(--gold); font-size: 2.5em; margin-top:10px; font-weight:900;">0</div>
     </div>
 </div>
 
 <div id="overlay">
-    <h1 id="res-title" style="font-size: 7em; margin: 0;"></h1>
-    <p id="res-detail" style="font-size: 2.5em; color: #888; margin: 20px 0;"></p>
-    <div style="color:var(--gold); font-size: 1.8em; font-weight:bold;">✊ 握拳 2 秒：开始新局</div>
-    <div style="width:300px; height:8px; background:#222; margin-top:20px; border-radius:4px; overflow:hidden;">
-        <div id="fist-progress" style="width:0%; height:100%; background:var(--gold);"></div>
-    </div>
+    <h1 id="res-msg" style="font-size: 6em; margin: 0;"></h1>
+    <p id="res-sub" style="font-size: 2em; color: #777;"></p>
+    <div style="color:var(--gold); font-size: 1.5em; margin-top:40px">✊ 保持握拳：重开下一局</div>
+    <div class="bar-wrap"><div id="bar-fill"></div></div>
 </div>
 
 <script>
 let money = 1000, bet = 0, state = "BETTING", pHand = [], dHand = [], deck = [];
-let busy = false, cooldown = false, progress = 0;
+let isBusy = false, cooldown = false, resetCounter = 0;
 
-// 辅助函数
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-function updateInstructions() {
-    const l1 = document.getElementById('line-1');
-    const lt = document.getElementById('line-thumb');
-    const l2 = document.getElementById('line-2');
-    if (state === "BETTING") {
-        l1.innerHTML = "☝️ 伸出食指：加注 ($100)";
-        lt.style.display = "block";
-        lt.innerHTML = "👍 伸大拇指：撤回 ($100)";
-        l2.innerHTML = "🖐️ 张开手掌：确认开局";
-    } else if (state === "PLAYING") {
-        l1.innerHTML = "☝️ 伸出食指：要牌 (Hit)";
-        lt.style.display = "none";
-        l2.innerHTML = "🖐️ 张开手掌：停牌 (Stand)";
+function updateUI() {
+    document.getElementById('m-val').innerText = `$${money}`;
+    document.getElementById('b-val').innerText = `$${bet}`;
+    document.getElementById('p-score').innerText = getScore(pHand);
+    const h1 = document.getElementById('h1'), h2 = document.getElementById('h2'), ht = document.getElementById('h-thumb');
+    if(state === "BETTING") {
+        h1.innerText = "☝️ 保持食指：加注 ($100)";
+        ht.style.display = "block";
+        h2.innerText = "🖐️ 保持张开：确认开局";
+    } else {
+        h1.innerText = "☝️ 保持食指：要牌 (Hit)";
+        ht.style.display = "none";
+        h2.innerText = "🖐️ 保持张开：停牌 (Stand)";
     }
 }
 
-function flashAction(emoji, color = "var(--cyan)") {
-    const t = document.getElementById('toast');
-    t.innerText = emoji;
-    t.style.color = color;
-    t.style.opacity = 1;
-    t.style.transform = "translate(-50%, -50%) scale(1.2)";
-    setTimeout(() => { t.style.opacity = 0; t.style.transform = "translate(-50%, -50%) scale(1)"; }, 500);
-}
-
-function shuffle() {
-    const s = ['♠','♥','♣','♦'], v = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-    let d = []; s.forEach(suit => v.forEach(val => d.push({suit, val, isRed: suit==='♥'||suit==='♦'})));
-    return d.sort(() => Math.random() - 0.5);
-}
-
-function renderCard(card, target, isHidden = false) {
+async function addCard(target, handArray, isHidden = false) {
+    const card = deck.pop();
+    handArray.push(card);
+    const container = document.getElementById(target);
     const div = document.createElement('div');
     div.className = `card ${isHidden ? 'hidden' : ''} ${card.isRed ? 'red' : ''}`;
-    div.innerHTML = isHidden ? '' : `<div>${card.val}</div><div style="font-size:45px;text-align:center;margin-top:25px">${card.suit}</div>`;
-    document.getElementById(target).appendChild(div);
+    div.innerHTML = isHidden ? '' : `<div>${card.val}</div><div style="font-size:48px;text-align:center;margin-top:20px">${card.suit}</div>`;
+    container.appendChild(div);
+    updateUI();
+    await new Promise(r => setTimeout(r, 600)); // 物理发牌间隔，防止出一堆
 }
 
 async function startRound() {
-    if(busy) return;
-    busy = true; state = "PLAYING"; updateInstructions();
-    deck = shuffle(); pHand = []; dHand = [];
+    isBusy = true; state = "PLAYING";
+    deck = [];
+    const suits = ['♠','♥','♣','♦'], vals = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+    suits.forEach(s => vals.forEach(v => deck.push({suit:s, val:v, isRed: s==='♥'||s==='♦'})));
+    deck.sort(() => Math.random() - 0.5);
+    
     document.getElementById('player-hand').innerHTML = '';
     document.getElementById('dealer-hand').innerHTML = '';
+    pHand = []; dHand = [];
+
+    await addCard('player-hand', pHand);
+    await addCard('dealer-hand', dHand);
+    await addCard('player-hand', pHand);
+    await addCard('dealer-hand', dHand, true);
     
-    // 严格串行发牌，防止重叠
-    for(let i=0; i<2; i++) {
-        const pCard = deck.pop(); pHand.push(pCard); renderCard(pCard, 'player-hand'); await wait(600);
-        const dCard = deck.pop(); dHand.push(dCard); renderCard(dCard, 'dealer-hand', i===1); await wait(600);
-    }
-    busy = false; updateUI();
+    isBusy = false;
 }
 
-async function handleAction(type) {
+async function handleGesture(type) {
+    if (isBusy || cooldown) return;
     if (state === "FINISHED") {
         if (type === "FIST") {
-            progress += 2;
-            document.getElementById('fist-progress').style.width = progress + "%";
-            if (progress >= 100) resetGame();
-        } else { progress = Math.max(0, progress - 1); }
+            resetCounter += 2;
+            document.getElementById('bar-fill').style.width = resetCounter + "%";
+            if(resetCounter >= 100) {
+                state = "BETTING"; bet = 0; resetCounter = 0;
+                document.getElementById('overlay').style.display = "none";
+                document.getElementById('player-hand').innerHTML = '';
+                document.getElementById('dealer-hand').innerHTML = '';
+                updateUI();
+            }
+        } else { resetCounter = Math.max(0, resetCounter - 2); }
         return;
     }
 
-    if (busy || cooldown) return;
-
     if (state === "BETTING") {
         if (type === "HIT" && money >= 100) {
-            bet += 100; money -= 100; flashAction("+$100");
-            cooldown = true; updateUI(); await wait(1000); cooldown = false;
+            money -= 100; bet += 100; triggerCD(1200);
         } else if (type === "THUMB" && bet >= 100) {
-            bet -= 100; money += 100; flashAction("-$100", "var(--red)");
-            cooldown = true; updateUI(); await wait(1000); cooldown = false;
+            money += 100; bet -= 100; triggerCD(1200);
         } else if (type === "STAND" && bet > 0) {
-            flashAction("GO!"); await wait(500); startRound();
+            startRound();
         }
     } else if (state === "PLAYING") {
         if (type === "HIT") {
-            busy = true; flashAction("HIT");
-            const c = deck.pop(); pHand.push(c); renderCard(c, 'player-hand');
-            if (getScore(pHand) > 21) finalize("LOSE", "BUST!", "点数超过21点");
-            else { updateUI(); await wait(800); busy = false; }
+            isBusy = true;
+            await addCard('player-hand', pHand);
+            if(getScore(pHand) > 21) finalize("LOSE", "爆牌了！", "Dealer Wins");
+            else isBusy = false;
         } else if (type === "STAND") {
-            busy = true; flashAction("STAND", "var(--gold)"); await wait(500);
-            // 揭开庄家底牌
+            isBusy = true;
             const last = document.getElementById('dealer-hand').lastChild;
             last.className = `card ${dHand[1].isRed ? 'red' : ''}`;
-            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:45px;text-align:center;margin-top:25px">${dHand[1].suit}</div>`;
-            await wait(800);
-            while(getScore(dHand) < 17) {
-                const c = deck.pop(); dHand.push(c); renderCard(c, 'dealer-hand'); await wait(800);
-            }
+            last.innerHTML = `<div>${dHand[1].val}</div><div style="font-size:48px;text-align:center;margin-top:20px">${dHand[1].suit}</div>`;
+            await new Promise(r => setTimeout(r, 800));
+            while(getScore(dHand) < 17) { await addCard('dealer-hand', dHand); }
             const ps = getScore(pHand), ds = getScore(dHand);
-            if (ds > 21 || ps > ds) finalize("WIN", "YOU WIN!", "赢取了双倍筹码");
-            else if (ps < ds) finalize("LOSE", "DEALER WIN", "庄家点数更大");
-            else finalize("PUSH", "PUSH", "平局，筹码退回");
+            if(ds > 21 || ps > ds) { money += bet*2; finalize("WIN", "你赢了！", "Great Job"); }
+            else if(ds > ps) finalize("LOSE", "庄家赢了", "Dealer Wins");
+            else { money += bet; finalize("PUSH", "平局", "Chips Returned"); }
         }
     }
 }
+
+function triggerCD(t) { cooldown = true; updateUI(); setTimeout(() => cooldown = false, t); }
 
 function getScore(hand) {
     let s = 0, a = 0;
@@ -200,72 +191,67 @@ function getScore(hand) {
     while(s>21 && a>0){s-=10;a--} return s;
 }
 
-function finalize(res, title, msg) {
-    if (res === "WIN") money += bet * 2;
-    if (res === "PUSH") money += bet;
-    state = "FINISHED"; progress = 0;
-    document.getElementById('res-title').innerText = title;
-    document.getElementById('res-title').style.color = res === "WIN" ? "var(--cyan)" : (res === "LOSE" ? "var(--red)" : "var(--gold)");
-    document.getElementById('res-detail').innerText = msg;
+function finalize(res, t1, t2) {
+    state = "FINISHED";
+    document.getElementById('res-msg').innerText = t1;
+    document.getElementById('res-msg').style.color = res === "WIN" ? "var(--cyan)" : (res === "LOSE" ? "var(--red)" : "var(--gold)");
+    document.getElementById('res-sub').innerText = t2;
     document.getElementById('overlay').style.display = "flex";
 }
 
-function resetGame() {
-    state = "BETTING"; bet = 0; progress = 0;
-    document.getElementById('overlay').style.display = "none";
-    document.getElementById('player-hand').innerHTML = '';
-    document.getElementById('dealer-hand').innerHTML = '';
-    updateInstructions(); updateUI();
-}
-
-function updateUI() {
-    document.getElementById('m-val').innerText = `$${money}`;
-    document.getElementById('b-val').innerText = `$${bet}`;
-    document.getElementById('player-score').innerText = getScore(pHand);
-}
-
-// Mediapipe 设置
 const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.8, minTrackingConfidence: 0.8 });
 
 hands.onResults((res) => {
     const canvas = document.getElementById('output_canvas');
     const ctx = canvas.getContext('2d');
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(res.image, 0, 0, canvas.width, canvas.height);
     
+    // 强制图像铺满 Canvas 像素网格
+    ctx.drawImage(res.image, 0, 0, canvas.width, canvas.height);
+
     if (res.multiHandLandmarks && res.multiHandLandmarks[0]) {
         const lm = res.multiHandLandmarks[0];
-        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 4});
-        drawLandmarks(ctx, lm, {color: '#00ffff', lineWidth: 2, radius: 4});
-
-        const up = (i) => lm[i].y < lm[i-2].y;
+        // 绘制骨架确认连接
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#d4af37', lineWidth: 5});
         
-        // 动作判定逻辑
+        const up = (i) => lm[i].y < lm[i-2].y;
         const isIndex = up(8) && !up(12) && !up(16) && !up(20);
         const isPalm = up(8) && up(12) && up(16) && up(20);
-        const isFist = (lm[8].y > lm[6].y) && (lm[12].y > lm[10].y) && (lm[16].y > lm[14].y);
-        // 大拇指判定：大拇指尖端(4)高度低于2且在4侧面
         const isThumb = lm[4].y < lm[3].y && !up(8) && !up(12) && !up(16) && !up(20);
+        const isFist = (lm[8].y > lm[6].y) && (lm[12].y > lm[10].y) && (lm[16].y > lm[14].y);
 
-        // UI 高亮
-        document.getElementById('line-1').className = isIndex ? 'instr-line active-action' : 'instr-line';
-        document.getElementById('line-2').className = isPalm ? 'instr-line active-action' : 'instr-line';
-        const thumbLine = document.getElementById('line-thumb');
-        if(thumbLine) thumbLine.className = isThumb ? 'instr-line cancel-action' : 'instr-line';
+        // 视觉反馈：在食指尖绘制确认光圈
+        if(isIndex) {
+            ctx.beginPath(); ctx.arc(lm[8].x * canvas.width, lm[8].y * canvas.height, 20, 0, Math.PI*2);
+            ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke();
+        }
 
-        let type = isIndex ? "HIT" : (isPalm ? "STAND" : (isFist ? "FIST" : (isThumb ? "THUMB" : "NONE")));
-        handleAction(type);
+        document.getElementById('h1').className = isIndex ? 'step active' : 'step';
+        document.getElementById('h2').className = isPalm ? 'step active' : 'step';
+        document.getElementById('h-thumb').className = isThumb ? 'step warn' : 'step';
+
+        let type = isIndex ? "HIT" : (isPalm ? "STAND" : (isThumb ? "THUMB" : (isFist ? "FIST" : "NONE")));
+        handleGesture(type);
     }
     ctx.restore();
 });
 
 const camera = new Camera(document.getElementById('input_video'), {
-    onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
+    onFrame: async () => { 
+        // 动态同步 Canvas 像素尺寸与容器一致，防止拉伸错位
+        const canvas = document.getElementById('output_canvas');
+        if(canvas.width !== canvas.clientWidth) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+        await hands.send({image: document.getElementById('input_video')}); 
+    },
     width: 640, height: 480
 });
-camera.start().then(() => updateInstructions());
+camera.start();
+updateUI();
 </script>
 </body>
 </html>
